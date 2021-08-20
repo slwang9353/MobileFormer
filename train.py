@@ -3,12 +3,10 @@ import numpy as np
 from torch.optim import lr_scheduler, optimizer
 from torch.serialization import save
 from torchvision.transforms.transforms import Scale
-from model_genarate import *
 import torchvision.datasets as dset
 import torchvision.transforms as T
 from torch.utils.data import DataLoader, sampler
 from torch.autograd import Variable
-from extend import *
 
 
 def check_accuracy(loader, model, device=None, dtype=None):
@@ -17,8 +15,8 @@ def check_accuracy(loader, model, device=None, dtype=None):
     model.eval()
     with torch.no_grad():
         for x, y in loader:
-            x = x.to(device=device, dtype=dtype)
-            y = y.to(device=device, dtype=torch.long)
+            x = x.to(device, dtype=dtype)
+            y = y.to(device, dtype=torch.long)
             scores = model(x)
             _, preds = scores.max(1)
             num_correct += (preds == y).sum()
@@ -34,7 +32,7 @@ def train(
         epochs=1, device=None, dtype=None, check_point_dir=None, save_epochs=None, mode=None
 ):
     acc = 0
-    model = model.to(device=device)
+    model = model.to(device)
     accs = [0]
     losses = []
     model.train()
@@ -43,12 +41,12 @@ def train(
     model_save_dir = check_point_dir + 'check_points.pth'
     for e in range(epochs):
         for t, (x, y) in enumerate(loader_train):
-            x = x.to(device=device, dtype=dtype)
-            y = y.to(device=device, dtype=torch.long)
+            x = x.to(device=device, dtype=dtype, non_blocking=True)
+            y = y.to(device=device, dtype=torch.long, non_blocking=True)
             inputs, targets_a, targets_b, lam = Mixup.mixup_data(x, y, mixup, device)
             inputs, targets_a, targets_b = map(Variable, (inputs,
                                                       targets_a, targets_b))
-            scores = model(x)
+            scores = model(inputs)
             loss = Mixup.mixup_criterion(criterion, scores, targets_a, targets_b, lam)
 
             loss_value = np.array(loss.item())
@@ -63,7 +61,7 @@ def train(
             if scheduler is not None:
                 scheduler.step()
             if t % 100 == 0:
-                acc = check_accuracy(loader_val, model)
+                acc = check_accuracy(loader_val, model, device=device)
                 accs.append(np.array(acc))
         print("Epoch:" + str(e) + ', Val acc = ' + str(acc))
         if (mode == 'run' and e % save_epochs == 0 and e != 0) or (mode == 'run' and e == epochs - 1):
