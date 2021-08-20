@@ -7,6 +7,9 @@ from model_genarate import *
 import torchvision.datasets as dset
 import torchvision.transforms as T
 from torch.utils.data import DataLoader, sampler
+from torch.autograd import Variable
+from extend import *
+
 
 def check_accuracy(loader, model, device=None, dtype=None):
     num_correct = 0
@@ -24,6 +27,8 @@ def check_accuracy(loader, model, device=None, dtype=None):
     return acc
 
 def train(
+        mixup = 1,
+        criterion = nn.CrossEntropyLoss(),
         model=None, loader_train=None, 
         loader_val=None, scheduler=None,optimizer=None,wd=None, 
         epochs=1, device=None, dtype=None, check_point_dir=None, save_epochs=None, mode=None
@@ -31,25 +36,20 @@ def train(
     acc = 0
     model = model.to(device=device)
     accs = [0]
-    train_acc = [0]
     losses = []
+    model.train()
     record_dir_acc = check_point_dir + 'record_val_acc.npy'
-    record_dir_train_acc = check_point_dir + 'record_train_acc.npy'
     record_dir_loss = check_point_dir + 'record_loss.npy'
     model_save_dir = check_point_dir + 'check_points.pth'
     for e in range(epochs):
         for t, (x, y) in enumerate(loader_train):
-            model.train()
             x = x.to(device=device, dtype=dtype)
             y = y.to(device=device, dtype=torch.long)
+            inputs, targets_a, targets_b, lam = Mixup.mixup_data(x, y, mixup, device)
+            inputs, targets_a, targets_b = map(Variable, (inputs,
+                                                      targets_a, targets_b))
             scores = model(x)
-            _, pre = scores.max(1)
-
-            num_correct = (pre == y).sum()
-            num_samples = pre.size(0)
-            train_acc.append(float(num_correct) / num_samples)
-
-            loss = torch.nn.functional.cross_entropy(scores, y)
+            loss = Mixup.mixup_criterion(criterion, scores, targets_a, targets_b, lam)
 
             loss_value = np.array(loss.item())
             losses.append(loss_value)
@@ -68,14 +68,15 @@ def train(
         print("Epoch:" + str(e) + ', Val acc = ' + str(acc))
         if (mode == 'run' and e % save_epochs == 0 and e != 0) or (mode == 'run' and e == epochs - 1):
             np.save(record_dir_acc, np.array(accs))
-            np.save(record_dir_train_acc, np.array(train_acc))
             np.save(record_dir_loss, np.array(losses))
             torch.save(model.state_dict(), model_save_dir)
-    return acc, accs, train_acc, losses
+    return acc
 
 def run(
-        mode='search', model = None,
-        search_epoch=4, lr_range=[-5, -2], wd_range=[-4, -2],
+        mixup = 1,
+        criterion = nn.CrossEntropyLoss(),
+        mode='run', model = None,
+        search_epoch=None, lr_range=None, wd_range=[-4, -2],
         search_result_save_dir = None,
         run_epoch=30, lr=0, wd=0,  
         check_point_dir = None, save_epochs=None,
@@ -101,25 +102,29 @@ def run(
             weight_decay = wd
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate,
                                     betas=(0.9, 0.999), weight_decay=0)
-        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=T_mult)
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=3, T_mult=T_mult)
         args = {
+            'mixup' : mixup,
+            'criterion' : criterion,
             'model' : model_, 'loader_train' : loader_train, 'loader_val' : loader_val, 
             'scheduler' : lr_scheduler, 'optimizer' : optimizer, 'wd' : wd, 
             'epochs' : epochs, 'device' : device, 'dtype' : dtype,
             'check_point_dir' : check_point_dir, 'save_epochs' : save_epochs, 'mode' : mode
         }
-        print('######################################     Training...     ######################################')
-        val_acc, _, _, _ = train(**args)
+        print('#############################     Training...     #############################')
+        val_acc= train(**args)
         print('Training for ' + str(epochs) +' epochs, learning rate: ', learning_rate, ', weight decay: ', weight_decay, ', Val acc: ', val_acc)
 
         if mode == 'search':
             with open(search_result_save_dir + 'search_result.txt', "a") as f:
                 f.write(str(epochs) + ' epochs, learning rate:'  + str(learning_rate) + ', weight decay: ' + str(weight_decay) + ', Val acc: ' + str(val_acc) + '\n')
+        if mode == 'run':
+            print('Done, check_point saved in ', check_point_dir)
 
 
 if __name__ == '__main__':
     print()
-    print('############################### Training test (cifar10 for example) ###############################')  
+    print('###############################  Training test  ###############################')  
     print()
     dtype = torch.float32
     USE_GPU = True
@@ -129,7 +134,7 @@ if __name__ == '__main__':
         device = torch.device('cpu')
     print('Device: ', device)
     print()
-    print('############################### Dataset loading ... ###############################')
+    print('############################### Dataset loading ###############################')
     NUM_TRAIN = 49000
     transform = T.Compose([
         T.Resize(224),
@@ -139,19 +144,22 @@ if __name__ == '__main__':
         T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
     cifar_train = dset.CIFAR10('./dataset/', train=True, download=True, transform=transform)
-    loader_train = DataLoader(cifar_train, batch_size=32, sampler=sampler.SubsetRandomSampler(range(0, NUM_TRAIN)))
+    loader_train = DataLoader(cifar_train, batch_size=128, sampler=sampler.SubsetRandomSampler(range(0, NUM_TRAIN)))
     cifar_val = dset.CIFAR10('./dataset/', train=True, download=True, transform=transform)
-    loader_val = DataLoader(cifar_val, batch_size=32, sampler=sampler.SubsetRandomSampler(range(NUM_TRAIN, 50000)))
-    print('############################### Dataset loaded. ###############################')
+    loader_val = DataLoader(cifar_val, batch_size=128, sampler=sampler.SubsetRandomSampler(range(NUM_TRAIN, 50000)))
+    print('###############################  Dataset loaded  ##############################')
+    print()
     args = {
-        'mode':'search', 'model' : mobile_former_294(10),
-        'loader_train' : loader_train, 'loader_val' : loader_val, 
-        'device' : device, 'dtype' : dtype, 'T_mult' : 2, 
-        # If search:
-        'search_epoch' : 4, 'lr_range' : [-5, -2], 'wd_range' : [-4, -2],
+        'loader_train' : loader_train, 'loader_val' : loader_val,
+        'device' : device, 'dtype' : dtype, 
+        # Basic setting, mode: 'run' or 'search'
+        'mode':'run', 'model' : mobile_former_294(10),
+        'criterion' : nn.CrossEntropyLoss(), 'mixup' : 0.5, 'T_mult' : 2, 
+        # If search: (Masked if run)
+        'search_epoch' : 4, 'lr_range' : [-4, -2.5], 'wd_range' : [-4, -2],
         'search_result_save_dir' : './search_result/',
-        # If run
-        'run_epoch' : 5, 'lr' : 0, 'wd' : 0,  
+        # If run: (Masked if search)
+        'run_epoch' : 2, 'lr' : 0.0027452036817180113, 'wd' : 0.00716511533623753,  
         'check_point_dir' : './check_point/', 'save_epochs' : 5,
     }
     run(**args)
