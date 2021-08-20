@@ -24,11 +24,17 @@ class BottleneckLite(nn.Module):
     '''Proposed in Yunsheng Li, Yinpeng Chen et al., MicroNet, arXiv preprint arXiv: 2108.05894v1'''
     def __init__(self, in_channel, expand_size, out_channel, kernel_size=3, stride=1, padding=1):
         super(BottleneckLite, self).__init__()
+        self.in_channel = in_channel
+        self.expand_size = expand_size
+        self.out_channel = out_channel
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
         self.bnecklite = nn.Sequential(
-            nn.Conv2d(in_channel, expand_size, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channel),
+            nn.Conv2d(self.in_channel, self.expand_size, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, groups=self.in_channel),
             nn.ReLU6(inplace=True),
-            nn.Conv2d(expand_size, out_channel, kernel_size=1, stride=1),
-            nn.BatchNorm2d(out_channel)
+            nn.Conv2d(self.expand_size, self.out_channel, kernel_size=1, stride=1),
+            nn.BatchNorm2d(self.out_channel)
         )
     
     def forward(self, x):
@@ -40,18 +46,19 @@ class MLP(nn.Module):
     def __init__(self, widths, bn=True):
         super(MLP, self).__init__()
         layers = []
-        for n in range(len(widths) - 1):
+        self.widths = widths
+        for n in range(len(self.widths) - 1):
             layer_ = nn.Sequential(
-                nn.Linear(widths[n], widths[n + 1]),
+                nn.Linear(self.widths[n], self.widths[n + 1]),
                 nn.ReLU6(inplace=True),
             )
             layers.append(layer_)
-        self.mlp = nn.Sequential(*layers)
+        self.mlp = nn.Sequential(*layers).cuda()
         if bn:
             self.mlp = nn.Sequential(
                 *layers,
-                nn.BatchNorm1d(widths[-1])
-            )
+                nn.BatchNorm1d(self.widths[-1])
+            ).cuda()
 
     def forward(self, x):
         return self.mlp(x)
@@ -69,7 +76,7 @@ class DynamicReLU(nn.Module):
 
     def forward(self, x, control_vector):
         n, _, _, _ = x.shape
-        a_default = torch.ones(n, self.k * self.in_channel)
+        a_default = torch.ones(n, self.k * self.in_channel).cuda()
         a_default[:, self.k * self.in_channel // 2 : ] = torch.zeros(n, self.k * self.in_channel // 2)
         theta = self.Theta(control_vector)
         theta = 2 * torch.sigmoid(theta) - 1
@@ -87,29 +94,35 @@ class Mobile(nn.Module):
     def __init__(self, in_channel, expand_size, out_channel, token_demension, kernel_size=3, stride=1, k=2):
         super(Mobile, self).__init__()
         self.stride = stride
+        self.in_channel = in_channel
+        self.expand_size = expand_size
+        self.out_channel = out_channel
+        self.token_demension = token_demension
+        self.kernel_size = kernel_size
+        self.k = k
         if stride == 2:
             self.strided_conv = nn.Sequential(
-                nn.Conv2d(in_channel, expand_size, kernel_size=3, stride=2, padding=int(kernel_size // 2), groups=in_channel),
-                nn.BatchNorm2d(expand_size),
+                nn.Conv2d(self.in_channel, self.expand_size, kernel_size=3, stride=2, padding=int(self.kernel_size // 2), groups=self.in_channel).cuda(),
+                nn.BatchNorm2d(self.expand_size).cuda(),
                 nn.ReLU6(inplace=True)
-            )
-            self.conv1 = nn.Conv2d(expand_size, in_channel, kernel_size=1, stride=1)
-            self.bn1 = nn.BatchNorm2d(in_channel)
-            self.ac1 = DynamicReLU(in_channel, token_demension, k=k)      
-            self.conv2 = nn.Conv2d(in_channel, expand_size, kernel_size=3, stride=1, padding=1, groups=in_channel)
-            self.bn2 = nn.BatchNorm2d(expand_size)
-            self.ac2 = DynamicReLU(expand_size, token_demension, k=k)          
-            self.conv3 = nn.Conv2d(expand_size, out_channel, kernel_size=1, stride=1)
-            self.bn3 = nn.BatchNorm2d(out_channel)
+            )             ######################
+            self.conv1 = nn.Conv2d(self.expand_size, self.in_channel, kernel_size=1, stride=1).cuda()
+            self.bn1 = nn.BatchNorm2d(self.in_channel).cuda()
+            self.ac1 = DynamicReLU(self.in_channel, self.token_demension, k=k) .cuda()     
+            self.conv2 = nn.Conv2d(self.in_channel, self.expand_size, kernel_size=3, stride=1, padding=1, groups=self.in_channel).cuda()
+            self.bn2 = nn.BatchNorm2d(self.expand_size).cuda()
+            self.ac2 = DynamicReLU(self.expand_size, self.token_demension, k=self.k).cuda()         
+            self.conv3 = nn.Conv2d(self.expand_size, self.out_channel, kernel_size=1, stride=1).cuda()
+            self.bn3 = nn.BatchNorm2d(self.out_channel).cuda()
         else:
-            self.conv1 = nn.Conv2d(in_channel, expand_size, kernel_size=1, stride=1)
-            self.bn1 = nn.BatchNorm2d(expand_size)
-            self.ac1 = DynamicReLU(expand_size, token_demension, k=k)      
-            self.conv2 = nn.Conv2d(expand_size, expand_size, kernel_size=3, stride=1, padding=1, groups=expand_size)
-            self.bn2 = nn.BatchNorm2d(expand_size)
-            self.ac2 = DynamicReLU(expand_size, token_demension, k=k)          
-            self.conv3 = nn.Conv2d(expand_size, out_channel, kernel_size=1, stride=1)
-            self.bn3 = nn.BatchNorm2d(out_channel)
+            self.conv1 = nn.Conv2d(self.in_channel, self.expand_size, kernel_size=1, stride=1).cuda()
+            self.bn1 = nn.BatchNorm2d(self.expand_size).cuda()
+            self.ac1 = DynamicReLU(self.expand_size, self.token_demension, k=self.k).cuda()      
+            self.conv2 = nn.Conv2d(self.expand_size, self.expand_size, kernel_size=3, stride=1, padding=1, groups=self.expand_size).cuda()
+            self.bn2 = nn.BatchNorm2d(self.expand_size).cuda()
+            self.ac2 = DynamicReLU(self.expand_size, self.token_demension, k=k).cuda()          
+            self.conv3 = nn.Conv2d(self.expand_size, self.out_channel, kernel_size=1, stride=1).cuda()
+            self.bn3 = nn.BatchNorm2d(self.out_channel).cuda()
 
     def forward(self, x, first_token):
         if self.stride == 2:
@@ -125,15 +138,17 @@ class Mobile_Former(nn.Module):
     '''Local feature -> Global feature'''
     def __init__(self, d_model, in_channel):
         super(Mobile_Former, self).__init__()
-        self.project_Q = nn.Linear(d_model, in_channel)
-        self.unproject = nn.Linear(in_channel, d_model)
+        self.d_model = d_model
+        self.in_channel = in_channel
+        self.project_Q = nn.Linear(self.d_model, self.in_channel).cuda()
+        self.unproject = nn.Linear(self.in_channel, self.d_model).cuda()
         self.eps = 1e-10
         self.shortcut = nn.Sequential()
 
     def forward(self, local_feature, x):
         n, c, _, _ = local_feature.shape
-        local_feature = local_feature.view(n, c, -1).permute(0, 2, 1)   # N, L, C
-        project_Q = self.project_Q(x)   # N, M, C
+        local_feature = local_feature.reshape(n, c, -1).permute(0, 2, 1)   # N, L, C
+        project_Q = self.project_Q(x)   # N, M, C 
         scores = torch.einsum('nmc , nlc -> nml', project_Q, local_feature) / (np.sqrt(c) + self.eps)
         scores_map = F.softmax(scores, dim=-1)  # each m to every l
         fushion = torch.einsum('nml, nlc -> nmc', scores_map, local_feature)
@@ -147,27 +162,28 @@ class Former(nn.Module):
         super(Former, self).__init__()
         self.d_model = d_model
         self.eps = 1e-10
-        self.heads = head
+        self.head = head
+        self.expand_ratio = expand_ratio
         assert d_model % head == 0
-        self.d_per_head = d_model // head
-        self.QVK = MLP([d_model, d_model * 3], bn=False)
-        self.Q_to_heads = MLP([d_model, d_model], bn=False)
-        self.K_to_heads = MLP([d_model, d_model], bn=False)
-        self.V_to_heads = MLP([d_model, d_model], bn=False)
-        self.heads_to_o = MLP([d_model, d_model], bn=False)
-        self.norm = nn.LayerNorm(d_model)
-        self.mlp = MLP([d_model, expand_ratio * d_model, d_model], bn=False)
-        self.mlp_norm = nn.LayerNorm(d_model)
+        self.d_per_head = self.d_model // self.head
+        self.QVK = MLP([self.d_model, self.d_model * 3], bn=False)
+        self.Q_to_heads = MLP([self.d_model, self.d_model], bn=False)
+        self.K_to_heads = MLP([self.d_model, self.d_model], bn=False)
+        self.V_to_heads = MLP([self.d_model, self.d_model], bn=False)
+        self.heads_to_o = MLP([self.d_model, self.d_model], bn=False)
+        self.norm = nn.LayerNorm(self.d_model).cuda()
+        self.mlp = MLP([self.d_model, self.expand_ratio * self.d_model, self.d_model], bn=False)
+        self.mlp_norm = nn.LayerNorm(self.d_model).cuda()
 
     def forward(self, x):
         n, m, d = x.shape
         QVK = self.QVK(x)
         Q = QVK[:, :, 0: self.d_model]
-        Q = self.Q_to_heads(Q).reshape(n, m, self.d_model // self.heads, self.heads)   # (n, m, d/head, head)
+        Q = self.Q_to_heads(Q).reshape(n, m, self.d_model // self.head, self.head)   # (n, m, d/head, head)
         K = QVK[:, :, self.d_model: 2 * self.d_model]
-        K = self.K_to_heads(K).reshape(n, m, self.d_model // self.heads, self.heads)   # (n, m, d/head, head)
+        K = self.K_to_heads(K).reshape(n, m, self.d_model // self.head, self.head)   # (n, m, d/head, head)
         V = QVK[:, :, 2 * self.d_model: 3 * self.d_model]
-        V = self.V_to_heads(V).reshape(n, m, self.d_model // self.heads, self.heads)   # (n, m, d/head, head)
+        V = self.V_to_heads(V).reshape(n, m, self.d_model // self.head, self.head)   # (n, m, d/head, head)
         scores = torch.einsum('nqdh, nkdh -> nhqk', Q, K) / (np.sqrt(self.d_per_head) + self.eps)   # (n, h, q, k)
         scores_map = F.softmax(scores, dim=-1)  # (n, h, q, k)
         v_heads = torch.einsum('nkdh, nhqk -> nhqd', V, scores_map).permute(0, 2, 1, 3) #   (n, h, m, d_p) -> (n, m, h, d_p)
@@ -183,7 +199,9 @@ class Former_Mobile(nn.Module):
     '''Global feature -> Local feature'''
     def __init__(self, d_model, in_channel):
         super(Former_Mobile, self).__init__()
-        self.project_KV = MLP([d_model, 2 * in_channel], bn=False)
+        self.d_model = d_model
+        self.in_channel = in_channel
+        self.project_KV = MLP([self.d_model, 2 * self.in_channel], bn=False)
         self.shortcut = nn.Sequential()
     
     def forward(self, x, global_feature):
@@ -204,10 +222,18 @@ class MobileFormerBlock(nn.Module):
     '''output local & global, if stride=2, then it is a downsample Block'''
     def __init__(self, in_channel, expand_size, out_channel, d_model, stride=1, k=2, head=8, expand_ratio=2):
         super(MobileFormerBlock, self).__init__()
-        self.mobile = Mobile(in_channel, expand_size, out_channel, d_model, kernel_size=3, stride=stride, k=2)
-        self.former = Former(head, d_model, expand_ratio=expand_ratio)
-        self.mobile_former = Mobile_Former(d_model, in_channel)
-        self.former_mobile = Former_Mobile(d_model, out_channel)
+        self.in_channel = in_channel
+        self.expand_size = expand_size
+        self.out_channel = out_channel
+        self.d_model = d_model
+        self.stride = stride
+        self.k = k
+        self.head = head
+        self.expand_ratio = expand_ratio
+        self.mobile = Mobile(self.in_channel, self.expand_size, self.out_channel, self.d_model, kernel_size=3, stride=self.stride, k=self.k)
+        self.former = Former(self.head, self.d_model, expand_ratio=self.expand_ratio)
+        self.mobile_former = Mobile_Former(self.d_model, self.in_channel)
+        self.former_mobile = Former_Mobile(self.d_model, self.out_channel)
     
     def forward(self, local_feature, global_feature):
         z_hidden = self.mobile_former(local_feature, global_feature)
@@ -226,45 +252,51 @@ class MobileFormer(nn.Module):
 
         parameter_check(expand_sizes, out_channels, num_token, d_model, in_channel, project_demension, fc_demension, num_class)
         
-        self.num_token, self.d_model = num_token, d_model
-        self.tokens = nn.Parameter(torch.randn(1, self.num_token, d_model), requires_grad=True)
+        self.expand_sizes = expand_sizes
+        self.out_channels = out_channels
+        self.num_token = num_token
+        self.d_model = d_model
+        self.in_channel = in_channel
+        self.project_demension = project_demension
+        self.fc_demension = fc_demension
+        self.num_class = num_class
+
+        self.tokens = nn.Parameter(torch.randn(1, self.num_token, self.d_model), requires_grad=True)
         self.inter_channel = 16
-        self.num_stages = len(expand_sizes)
+        self.num_stages = len(self.expand_sizes)
         self.stem = nn.Sequential(
-            nn.Conv2d(in_channel, 16, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(self.in_channel, self.inter_channel, kernel_size=3, stride=2, padding=1).cuda(),
+            nn.BatchNorm2d(self.inter_channel).cuda(),
             nn.ReLU6(inplace=True)
         )
         self.bneck = BottleneckLite(16, 32, 16, kernel_size=3, stride=1, padding=1)
         self.blocks = []
         for num_stage in range(self.num_stages):
-            num_blocks = len(expand_sizes[num_stage])
+            num_blocks = len(self.expand_sizes[num_stage])
             for num_block in range(num_blocks):
                 if num_block == 0:
                     self.blocks.append(
-                        MobileFormerBlock(self.inter_channel, expand_sizes[num_stage][num_block], out_channels[num_stage][num_block], d_model, stride=2)
+                        MobileFormerBlock(self.inter_channel, self.expand_sizes[num_stage][num_block], self.out_channels[num_stage][num_block], self.d_model, stride=2)
                     )
-                    self.inter_channel = out_channels[num_stage][num_block]
+                    self.inter_channel = self.out_channels[num_stage][num_block]
                 else:
                     self.blocks.append(
-                        MobileFormerBlock(self.inter_channel, expand_sizes[num_stage][num_block], out_channels[num_stage][num_block], d_model, stride=1)
+                        MobileFormerBlock(self.inter_channel, self.expand_sizes[num_stage][num_block], self.out_channels[num_stage][num_block], self.d_model, stride=1)
                     )
-                    self.inter_channel = out_channels[num_stage][num_block]
+                    self.inter_channel = self.out_channels[num_stage][num_block]
 
-        self.project = nn.Conv2d(self.inter_channel, project_demension, kernel_size=1, stride=1)
+        self.project = nn.Conv2d(self.inter_channel, self.project_demension, kernel_size=1, stride=1)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
-            nn.Linear(project_demension + d_model, fc_demension),
+            nn.Linear(self.project_demension + self.d_model, self.fc_demension),
             nn.ReLU6(inplace=True),
-            nn.Linear(fc_demension, num_class)
+            nn.Linear(self.fc_demension, self.num_class)
         )
 
     def forward(self, x):
+        tokens = self.tokens.repeat(x.shape[0], 1, 1)
         x = self.stem(x)
         x = self.bneck(x)
-        tokens = torch.zeros(x.shape[0], self.num_token, self.d_model)
-        for i in range(x.shape[0]):
-            tokens[i, :, :] = self.tokens
         for block in self.blocks:
             x, tokens = block(x, tokens)
         x = self.project(x)
