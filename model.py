@@ -68,12 +68,11 @@ class DynamicReLU(nn.Module):
 
     def forward(self, x, control_vector):
         n, _, _, _ = x.shape
-        a_defalut = torch.ones(n, self.k * self.in_channel)
-        a_defalut[:, self.k * self.in_channel // 2 : ] = torch.zeros(n, self.k * self.in_channel // 2)
+        a_default = torch.ones(n, self.k * self.in_channel)
+        a_default[:, self.k * self.in_channel // 2 : ] = torch.zeros(n, self.k * self.in_channel // 2)
         theta = self.Theta(control_vector)
         theta = 2 * torch.sigmoid(theta) - 1
-        a = theta[:, 0 : self.k * self.in_channel]
-        a = a_defalut + a
+        a = theta[:, 0 : self.k * self.in_channel] + a_default
         b = theta[:, self.k * self.in_channel : ] * 0.5
         a = a.reshape(n, self.k, self.in_channel)
         b = b.reshape(n, self.k, self.in_channel)
