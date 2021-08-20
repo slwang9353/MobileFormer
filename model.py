@@ -83,7 +83,7 @@ class DynamicReLU(nn.Module):
 
 
 class Mobile(nn.Module):
-    '''Without shortcut, if stride=2, donwsample, DW conv expand channel, PW conv squeeze channel'''
+    '''Without shortcut. If stride=2, donwsample, DW conv expand channel, PW conv squeeze channel'''
     def __init__(self, in_channel, expand_size, out_channel, token_demension, kernel_size=3, stride=1, k=2):
         super(Mobile, self).__init__()
         self.stride = stride
@@ -201,7 +201,7 @@ class Former_Mobile(nn.Module):
 
 class MobileFormerBlock(nn.Module):
     '''main sub-block, input local feature (N, C, H, W) & global feature (N, M, D)'''
-    '''output local & global, if stride=2, then it is a downsample Block'''
+    '''output local & global. If stride=2, it becames a downsample block'''
     def __init__(self, in_channel, expand_size, out_channel, d_model, stride=1, k=2, head=8, expand_ratio=2):
         super(MobileFormerBlock, self).__init__()
         self.mobile = Mobile(in_channel, expand_size, out_channel, d_model, kernel_size=3, stride=stride, k=2)
