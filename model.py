@@ -3,6 +3,7 @@ from torch.functional import einsum
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from torchsummary import summary
 
 def parameter_check(expand_sizes, out_channels, num_token, d_model, in_channel, project_demension, fc_demension, num_class):
     check_list = [[],[]]
@@ -82,7 +83,7 @@ class DynamicReLU(nn.Module):
 
 
 class Mobile(nn.Module):
-    '''Without shortcut. If stride=2, donwsample, DW conv expand channel, PW conv squeeze channel'''
+    '''Without shortcut, if stride=2, donwsample, DW conv expand channel, PW conv squeeze channel'''
     def __init__(self, in_channel, expand_size, out_channel, token_demension, kernel_size=3, stride=1, k=2):
         super(Mobile, self).__init__()
         self.stride = stride
@@ -200,7 +201,7 @@ class Former_Mobile(nn.Module):
 
 class MobileFormerBlock(nn.Module):
     '''main sub-block, input local feature (N, C, H, W) & global feature (N, M, D)'''
-    '''output local & global. If stride=2, it becames a downsample block'''
+    '''output local & global, if stride=2, then it is a downsample Block'''
     def __init__(self, in_channel, expand_size, out_channel, d_model, stride=1, k=2, head=8, expand_ratio=2):
         super(MobileFormerBlock, self).__init__()
         self.mobile = Mobile(in_channel, expand_size, out_channel, d_model, kernel_size=3, stride=stride, k=2)
@@ -216,6 +217,7 @@ class MobileFormerBlock(nn.Module):
         return x_out, z_out
 
 class MobileFormer(nn.Module):
+    '''Resolution should larger than [2 ** (num_stages + 1) + 7]'''
     '''stem -> bneck-lite -> stages(strided at first block) -> up-project-1x1 -> avg-pool -> fc1 -> scores-fc'''
     def __init__(self, expand_sizes=None, out_channels=None, 
                        num_token=6, d_model=192, in_channel=3, 
@@ -273,7 +275,7 @@ class MobileFormer(nn.Module):
 
 if __name__ == '__main__':
     print()
-    print('############################### Inference Test (MobileFormer 294M)###############################')
+    print('############################### Inference check (MobileFormer 294M)###############################')
 
     args = {
         'expand_sizes' : [[96, 96], [144, 192], [288, 384, 576, 768], [768, 1152, 1152]],
@@ -283,9 +285,4 @@ if __name__ == '__main__':
     }
     print()
     model = MobileFormer(**args)
-    image = torch.ones(32, 3, 224, 224)
-    print('Input Size: ')
-    print(image.shape)
-    scores = model.forward(image)
-    print('Inference Size (Under 100 class): ')
-    print(scores.shape)
+    summary(model, (3, 224, 224))
