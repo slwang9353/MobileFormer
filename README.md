@@ -1,5 +1,5 @@
 ## MobileFormer
-                                            A implementation of MobileFormer in torch.
+  A implementation of MobileFormer in torch.
 ## Including
     [1] Mobile-Former proposed in: 
                             Yinpeng Chen, Xiyang Dai et al., Mobile-Former: Bridging MobileNet and Transformer. 
