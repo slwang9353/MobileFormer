@@ -305,7 +305,7 @@ class MobileFormer(nn.Module):
 
 
 if __name__ == '__main__':
-    from model_genarate import *
+    from model_generator import *
     print()
     print('############################### Inference Test ###############################')
     print()
