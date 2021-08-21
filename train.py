@@ -7,6 +7,7 @@ import torchvision.datasets as dset
 import torchvision.transforms as T
 from torch.utils.data import DataLoader, sampler
 from torch.autograd import Variable
+from model_generator import *
 
 
 def check_accuracy(loader, model, device=None, dtype=None):
