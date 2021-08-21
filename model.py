@@ -43,13 +43,15 @@ class BottleneckLite(nn.Module):
 
 class MLP(nn.Module):
     '''widths [in_channel, ..., out_channel], with ReLU within'''
-    def __init__(self, widths, bn=True):
+    def __init__(self, widths, bn=True, p=0.3):
         super(MLP, self).__init__()
         layers = []
         self.widths = widths
+        self.p = p
         for n in range(len(self.widths) - 1):
             layer_ = nn.Sequential(
                 nn.Linear(self.widths[n], self.widths[n + 1]),
+                nn.Dropout(p=self.p),
                 nn.ReLU6(inplace=True),
             )
             layers.append(layer_)
@@ -136,8 +138,9 @@ class Mobile(nn.Module):
 
 class Mobile_Former(nn.Module):
     '''Local feature -> Global feature'''
-    def __init__(self, d_model, in_channel):
+    def __init__(self, d_model, in_channel, p=0.3):
         super(Mobile_Former, self).__init__()
+        self.p = p
         self.d_model = d_model
         self.in_channel = in_channel
         self.project_Q = nn.Linear(self.d_model, self.in_channel).cuda()
@@ -287,11 +290,7 @@ class MobileFormer(nn.Module):
 
         self.project = nn.Conv2d(self.inter_channel, self.project_demension, kernel_size=1, stride=1)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Linear(self.project_demension + self.d_model, self.fc_demension),
-            nn.ReLU6(inplace=True),
-            nn.Linear(self.fc_demension, self.num_class)
-        )
+        self.fc = MLP([self.project_demension + self.d_model, self.fc_demension, self.num_class], bn=False)
 
     def forward(self, x):
         tokens = self.tokens.repeat(x.shape[0], 1, 1)
