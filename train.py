@@ -7,6 +7,7 @@ import torchvision.datasets as dset
 import torchvision.transforms as T
 from torch.utils.data import DataLoader, sampler
 from torch.autograd import Variable
+import torch.nn as nn
 from model_generator import *
 
 
