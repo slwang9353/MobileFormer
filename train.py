@@ -65,8 +65,7 @@ def train(
             if t % 100 == 0:
                 acc = check_accuracy(loader_val, model, device=device)
                 accs.append(np.array(acc))
-        print(loss)
-        print("Epoch:" + str(e) + ', Val acc = ' + str(acc))
+        print("Epoch:" + str(e) + ', Val acc = ' + str(acc) + ', Loss = ' + str(loss_value))
         if (mode == 'run' and e % save_epochs == 0 and e != 0) or (mode == 'run' and e == epochs - 1):
             np.save(record_dir_acc, np.array(accs))
             np.save(record_dir_loss, np.array(losses))
