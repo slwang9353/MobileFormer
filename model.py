@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 from torchsummary import summary
 from thop import profile, clever_format
+from einops import rearrange, repeat
 
 def parameter_check(expand_sizes, out_channels, num_token, d_model, in_channel, project_demension, fc_demension, num_class):
     check_list = [[],[]]
@@ -51,13 +52,19 @@ class MLP(nn.Module):
         self.bn = bn
         self.p = p
         self.layers = []
-        for n in range(len(self.widths) - 1):
+        for n in range(len(self.widths) - 2):
             layer_ = nn.Sequential(
                 nn.Linear(self.widths[n], self.widths[n + 1]).cuda(),
                 nn.Dropout(p=self.p).cuda(),
                 nn.ReLU6(inplace=True).cuda(),
             )
             self.layers.append(layer_)
+        self.layers.append(
+            nn.Sequential(
+                nn.Linear(self.widths[-2], self.widths[-1]),
+                nn.Dropout(p=self.p)
+            )
+        )
         self.mlp = nn.Sequential(*self.layers).cuda()
         if self.bn:
             self.mlp = nn.Sequential(
@@ -77,7 +84,6 @@ class DynamicReLU(nn.Module):
         self.in_channel = in_channel
         self.k = k
         self.control_demension = control_demension
-
         self.Theta = MLP([control_demension, 4 * control_demension, 2 * k * in_channel], bn=True)
 
     def forward(self, x, control_vector):
@@ -88,8 +94,8 @@ class DynamicReLU(nn.Module):
         theta = 2 * torch.sigmoid(theta) - 1
         a = theta[:, 0 : self.k * self.in_channel] + a_default
         b = theta[:, self.k * self.in_channel : ] * 0.5
-        a = a.reshape(n, self.k, self.in_channel)
-        b = b.reshape(n, self.k, self.in_channel)
+        a = rearrange(a, 'n ( k c ) -> n k c', k=self.k)
+        b = rearrange(b, 'n ( k c ) -> n k c', k=self.k)
         # x (NCHW), a & b (N, k, C)
         x = einsum('nchw, nkc -> nchwk', x, a) + einsum('nchw, nkc -> nchwk', torch.ones_like(x).cuda(), b)
         return x.max(4)[0]
@@ -148,10 +154,10 @@ class Mobile_Former(nn.Module):
         self.shortcut = nn.Sequential().cuda()
 
     def forward(self, local_feature, x):
-        n, c, _, _ = local_feature.shape
-        local_feature = local_feature.view(n, c, -1).permute(0, 2, 1)   # N, L, C
+        _, c, _, _ = local_feature.shape
+        local_feature = rearrange(local_feature, 'n c h w -> n ( h w ) c')   # N, L, C
         project_Q = self.project_Q(x)   # N, M, C
-        scores = torch.einsum('nmc , nlc -> nml', project_Q, local_feature) / (np.sqrt(c) + self.eps)
+        scores = torch.einsum('nmc , nlc -> nml', project_Q, local_feature) * (c ** -0.5)
         scores_map = F.softmax(scores, dim=-1)  # each m to every l
         fushion = torch.einsum('nml, nlc -> nmc', scores_map, local_feature)
         unproject = self.unproject(fushion) # N, m, d
@@ -179,18 +185,17 @@ class Former(nn.Module):
         self.mlp_norm = nn.LayerNorm(self.d_model).cuda()
 
     def forward(self, x):
-        n, m, d = x.shape
         QVK = self.QVK(x)
         Q = QVK[:, :, 0: self.d_model]
-        Q = self.Q_to_heads(Q).reshape(n, m, self.d_model // self.head, self.head)   # (n, m, d/head, head)
+        Q = rearrange(self.Q_to_heads(Q), 'n m ( d h ) -> n m d h', h=self.head)   # (n, m, d/head, head)
         K = QVK[:, :, self.d_model: 2 * self.d_model]
-        K = self.K_to_heads(K).reshape(n, m, self.d_model // self.head, self.head)   # (n, m, d/head, head)
+        K = rearrange(self.K_to_heads(K), 'n m ( d h ) -> n m d h', h=self.head)   # (n, m, d/head, head)
         V = QVK[:, :, 2 * self.d_model: 3 * self.d_model]
-        V = self.V_to_heads(V).reshape(n, m, self.d_model // self.head, self.head)   # (n, m, d/head, head)
+        V = rearrange(self.V_to_heads(V), 'n m ( d h ) -> n m d h', h=self.head)   # (n, m, d/head, head)
         scores = torch.einsum('nqdh, nkdh -> nhqk', Q, K) / (np.sqrt(self.d_per_head) + self.eps)   # (n, h, q, k)
         scores_map = F.softmax(scores, dim=-1)  # (n, h, q, k)
-        v_heads = torch.einsum('nkdh, nhqk -> nhqd', V, scores_map).permute(0, 2, 1, 3) #   (n, h, m, d_p) -> (n, m, h, d_p)
-        v_heads = v_heads.reshape(n, m, d)
+        v_heads = torch.einsum('nkdh, nhqk -> nhqd', V, scores_map) #   (n, h, m, d_p) -> (n, m, h, d_p)
+        v_heads = rearrange(v_heads, 'n h q d -> n q ( h d )')
         attout = self.heads_to_o(v_heads)
         attout = self.norm(attout)  #post LN
         attout = self.mlp(attout)
@@ -213,11 +218,11 @@ class Former_Mobile(nn.Module):
         project_kv = self.project_KV(global_feature)
         K = project_kv[:, :, 0 : c]  # (n, m, c)
         V = project_kv[:, :, c : ]   # (n, m, c)
-        x = x.reshape(n, c, h * w).permute(0, 2, 1) # (n, l, c) , l = h * w
+        x = rearrange(x, 'n c h w -> n ( h w ) c') # (n, l, c) , l = h * w
         scores = torch.einsum('nqc, nkc -> nqk', x, K) # (n, l, m)
         scores_map = F.softmax(scores, dim=-1) # (n, l, m)
         v_agg = torch.einsum('nqk, nkc -> nqc', scores_map, V)  # (n, l, c)
-        feature = v_agg.permute(0, 2, 1).reshape(n, c, h, w)
+        feature = rearrange(v_agg, 'n ( h w ) c -> n c h w', h=h)
         return feature + res
 
 class MobileFormerBlock(nn.Module):
@@ -261,7 +266,7 @@ class MobileFormer(nn.Module):
         self.out_channels = out_channels
         self.project_demension, self.fc_demension, self.num_class= project_demension, fc_demension, num_class
         
-        self.tokens = nn.Parameter(torch.randn(1, self.num_token, self.d_model), requires_grad=True).cuda()
+        self.tokens = nn.Parameter(torch.randn(self.num_token, self.d_model), requires_grad=True).cuda()
         self.stem = nn.Sequential(
             nn.Conv2d(self.in_channel, self.stem_out_channel, kernel_size=3, stride=2, padding=1).cuda(),
             nn.BatchNorm2d(self.stem_out_channel).cuda(),
@@ -292,7 +297,7 @@ class MobileFormer(nn.Module):
         n, _, _, _ = x.shape
         x = self.stem(x)
         x = self.bneck(x)
-        tokens = self.tokens.repeat(n, 1, 1)
+        tokens = repeat(self.tokens, 'm d -> n m d', n=n)
         for block in self.blocks:
             x, tokens = block(x, tokens)
         x = self.project(x)
@@ -306,8 +311,4 @@ if __name__ == '__main__':
     from model_genarate import *
     print()
     print('############################### Inference Test ###############################')
-    input_ = torch.randn(3, 3, 224, 224)
-    flops, params = profile(mobile_former_214(1000), (input_,))
-    flops, params = clever_format([flops, params], "%.3f")
-    print('flops: ', flops, 'params: ', params)
     summary(mobile_former_214(1000), (3, 224, 224))
