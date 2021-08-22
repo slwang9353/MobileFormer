@@ -158,10 +158,10 @@ if __name__ == '__main__':
         'criterion' : nn.CrossEntropyLoss(), 'mixup' : 0.5, 'T_mult' : 2, 
         # If search: (Masked if run)
         'search_epoch' : 2, 'lr_range' : [-4, -2.5], 'wd_range' : [-3, -1],
-        'search_result_save_dir' : '/content/mydrive/MyDrive/MobileFormer/search_result/',
+        'search_result_save_dir' : './search_result/',
         # If run: (Masked if search)
         'run_epoch' : 100, 'lr' : 8e-4, 'wd' : 0.10,  
-        'check_point_dir' : '/content/mydrive/MyDrive/MobileFormer/check_point/', 'save_epochs' : 5,
+        'check_point_dir' : './check_point/', 'save_epochs' : 5,
     }
     run(**args)
 
