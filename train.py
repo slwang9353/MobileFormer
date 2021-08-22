@@ -9,7 +9,7 @@ import torchvision.transforms as T
 from torch.utils.data import DataLoader, sampler
 from torch.autograd import Variable
 from extend import *
-
+import torch.nn as nn
 
 def check_accuracy(loader, model, device=None, dtype=None):
     num_correct = 0
@@ -17,8 +17,8 @@ def check_accuracy(loader, model, device=None, dtype=None):
     model.eval()
     with torch.no_grad():
         for x, y in loader:
-            x = x.to(device=device, dtype=dtype)
-            y = y.to(device=device, dtype=torch.long)
+            x = x.to(device, dtype=dtype)
+            y = y.to(device, dtype=torch.long)
             scores = model(x)
             _, preds = scores.max(1)
             num_correct += (preds == y).sum()
@@ -34,7 +34,7 @@ def train(
         epochs=1, device=None, dtype=None, check_point_dir=None, save_epochs=None, mode=None
 ):
     acc = 0
-    model = model.to(device=device)
+    model = model.to(device)
     accs = [0]
     losses = []
     model.train()
@@ -48,7 +48,7 @@ def train(
             inputs, targets_a, targets_b, lam = Mixup.mixup_data(x, y, mixup, device)
             inputs, targets_a, targets_b = map(Variable, (inputs,
                                                       targets_a, targets_b))
-            scores = model(x)
+            scores = model(inputs)
             loss = Mixup.mixup_criterion(criterion, scores, targets_a, targets_b, lam)
 
             loss_value = np.array(loss.item())
@@ -63,9 +63,10 @@ def train(
             if scheduler is not None:
                 scheduler.step()
             if t % 100 == 0:
-                acc = check_accuracy(loader_val, model)
+                acc = check_accuracy(loader_val, model, device=device)
                 accs.append(np.array(acc))
-        print("Epoch:" + str(e) + ', Val acc = ' + str(acc) + ', Loss = ' + str(loss_value))
+        print(loss)
+        print("Epoch:" + str(e) + ', Val acc = ' + str(acc))
         if (mode == 'run' and e % save_epochs == 0 and e != 0) or (mode == 'run' and e == epochs - 1):
             np.save(record_dir_acc, np.array(accs))
             np.save(record_dir_loss, np.array(losses))
@@ -138,15 +139,15 @@ if __name__ == '__main__':
     NUM_TRAIN = 49000
     transform = T.Compose([
         T.Resize(224),
-        T.RandomRotation(10),
-        T.RandomHorizontalFlip(p=0.2),
+        T.RandomRotation(90),
+        T.RandomHorizontalFlip(p=0.5),
         T.ToTensor(),
         T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
-    cifar_train = dset.CIFAR10('./dataset/cifar10/', train=True, download=True, transform=transform)
-    loader_train = DataLoader(cifar_train, batch_size=64, num_workers = 2, pin_memory = True, sampler=sampler.SubsetRandomSampler(range(0, NUM_TRAIN)))
-    cifar_val = dset.CIFAR10('./dataset/cifar10/', train=True, download=True, transform=transform)
-    loader_val = DataLoader(cifar_val, batch_size=64, num_workers = 2, pin_memory = True, sampler=sampler.SubsetRandomSampler(range(NUM_TRAIN, 50000)))
+    cifar_train = dset.CIFAR10('./dataset/', train=True, download=True, transform=transform)
+    loader_train = DataLoader(cifar_train, batch_size=128, sampler=sampler.SubsetRandomSampler(range(0, NUM_TRAIN)))
+    cifar_val = dset.CIFAR10('./dataset/', train=True, download=True, transform=transform)
+    loader_val = DataLoader(cifar_val, batch_size=128, sampler=sampler.SubsetRandomSampler(range(NUM_TRAIN, 50000)))
     print('###############################  Dataset loaded  ##############################')
     print()
     args = {
@@ -156,11 +157,11 @@ if __name__ == '__main__':
         'mode':'search', 'model' : mobile_former_96(10),
         'criterion' : nn.CrossEntropyLoss(), 'mixup' : 0.5, 'T_mult' : 2, 
         # If search: (Masked if run)
-        'search_epoch' : 2, 'lr_range' : [-4, -2.5], 'wd_range' : [-2.5, -1],
-        'search_result_save_dir' : './search_result/',
+        'search_epoch' : 2, 'lr_range' : [-4, -2.5], 'wd_range' : [-3, -1],
+        'search_result_save_dir' : '/content/mydrive/MyDrive/MobileFormer/search_result/',
         # If run: (Masked if search)
-        'run_epoch' : 30, 'lr' : 0.0027452036817180113, 'wd' : 0.00716511533623753,  
-        'check_point_dir' : './check_point/', 'save_epochs' : 5,
+        'run_epoch' : 100, 'lr' : 8e-4, 'wd' : 0.10,  
+        'check_point_dir' : '/content/mydrive/MyDrive/MobileFormer/check_point/', 'save_epochs' : 5,
     }
     run(**args)
 
