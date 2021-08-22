@@ -31,7 +31,6 @@ class BottleneckLite(nn.Module):
         self.kernel_size = kernel_size
         self.stride = stride
         self.padding = padding
-
         self.bnecklite = nn.Sequential(
             nn.Conv2d(self.in_channel, self.expand_size, kernel_size=self.kernel_size, 
                             stride=self.stride, padding=self.padding, groups=self.in_channel).cuda(),
@@ -46,15 +45,16 @@ class BottleneckLite(nn.Module):
 
 class MLP(nn.Module):
     '''widths [in_channel, ..., out_channel], with ReLU within'''
-    def __init__(self, widths, bn=True):
+    def __init__(self, widths, bn=True, p=0.5):
         super(MLP, self).__init__()
         self.widths = widths
         self.bn = bn
-
+        self.p = p
         self.layers = []
         for n in range(len(self.widths) - 1):
             layer_ = nn.Sequential(
                 nn.Linear(self.widths[n], self.widths[n + 1]).cuda(),
+                nn.Dropout(p=self.p).cuda(),
                 nn.ReLU6(inplace=True).cuda(),
             )
             self.layers.append(layer_)
@@ -285,11 +285,8 @@ class MobileFormer(nn.Module):
 
         self.project = nn.Conv2d(self.inter_channel, self.project_demension, kernel_size=1, stride=1).cuda()
         self.avgpool = nn.AdaptiveAvgPool2d(1).cuda()
-        self.fc = nn.Sequential(
-            nn.Linear(self.project_demension + self.d_model, self.fc_demension).cuda(),
-            nn.ReLU6(inplace=True).cuda(),
-            nn.Linear(self.fc_demension, self.num_class).cuda()
-        )
+        self.fc = MLP([self.project_demension + self.d_model, self.fc_demension], bn=True)
+        self.scores = nn.Linear(self.fc_demension, self.num_class).cuda()
 
     def forward(self, x):
         n, _, _, _ = x.shape
@@ -301,15 +298,15 @@ class MobileFormer(nn.Module):
         x = self.project(x)
         x = self.avgpool(x).squeeze()
         x = torch.cat([x, tokens[:, 0, :]], dim=-1)
-        return self.fc(x)
+        x = self.fc(x)
+        return self.scores(x)
 
 
 if __name__ == '__main__':
-    from model_generator import *
+    from model_genarate import *
     print()
     print('############################### Inference Test ###############################')
-    print()
-    input_ = torch.randn(3, 3, 224, 224).cuda()
+    input_ = torch.randn(3, 3, 224, 224)
     flops, params = profile(mobile_former_214(1000), (input_,))
     flops, params = clever_format([flops, params], "%.3f")
     print('flops: ', flops, 'params: ', params)
