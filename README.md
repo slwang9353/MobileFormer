@@ -27,3 +27,8 @@
 # '###### The '#'s  #######'
 # '##### are aligned #####'
 No pre-train parameters for now.
+## About Training:
+    Following DeiT, there is an optional learning rate and weight decay set for grid search (if you want):
+        LR from [5e-4, 3e-4, 5e-5] * batchsize / 256 ( or 512)
+        WD from [0.03, 0.04, 0.05]
+    Looooooooong Training for CNN, but for transformer, its ok (maybe).
