@@ -1,11 +1,29 @@
 from model import MobileFormer
 import torch
+from torch.nn import init
+import torch.nn as nn
 
+def initNetParams(model):
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            init.kaiming_normal_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0.1)
+        elif isinstance(m, nn.BatchNorm2d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            init.kaiming_normal_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0.1)
 
 def mobile_former_custom(args, pre_train=False, state_dir=None):
     model = MobileFormer(**args)
     if pre_train:
         model.load_state_dict(torch.load(state_dir))
+    else:
+        initNetParams(model)
+        print('Model initialized.')
     return model
 
 def mobile_former_508(num_class, pre_train=False, state_dir=None):
@@ -19,7 +37,12 @@ def mobile_former_508(num_class, pre_train=False, state_dir=None):
     }
     model = MobileFormer(**args)
     if pre_train:
+        print('Modle loading...')
         model.load_state_dict(torch.load(state_dir))
+        print('Modle loaded.')
+    else:
+        initNetParams(model)
+        print('Model initialized.')
     return model
 
 def mobile_former_294(num_class, pre_train=False, state_dir=None):
@@ -33,7 +56,12 @@ def mobile_former_294(num_class, pre_train=False, state_dir=None):
     }
     model = MobileFormer(**args)
     if pre_train:
+        print('Modle loading...')
         model.load_state_dict(torch.load(state_dir))
+        print('Modle loaded.')
+    else:
+        initNetParams(model)
+        print('Model initialized.')
     return model
 
 def mobile_former_214(num_class, pre_train=False, state_dir=None):
@@ -47,7 +75,12 @@ def mobile_former_214(num_class, pre_train=False, state_dir=None):
     }
     model = MobileFormer(**args)
     if pre_train:
+        print('Modle loading...')
         model.load_state_dict(torch.load(state_dir))
+        print('Modle loaded.')
+    else:
+        initNetParams(model)
+        print('Model initialized.')
     return model
 
 def mobile_former_151(num_class, pre_train=False, state_dir=None):
@@ -61,7 +94,12 @@ def mobile_former_151(num_class, pre_train=False, state_dir=None):
     }
     model = MobileFormer(**args)
     if pre_train:
+        print('Modle loading...')
         model.load_state_dict(torch.load(state_dir))
+        print('Modle loaded.')
+    else:
+        initNetParams(model)
+        print('Model initialized.')
     return model
 
 def mobile_former_96(num_class, pre_train=False, state_dir=None):
@@ -75,5 +113,10 @@ def mobile_former_96(num_class, pre_train=False, state_dir=None):
     }
     model = MobileFormer(**args)
     if pre_train:
+        print('Modle loading...')
         model.load_state_dict(torch.load(state_dir))
+        print('Modle loaded.')
+    else:
+        initNetParams(model)
+        print('Model initialized.')
     return model
