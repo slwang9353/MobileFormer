@@ -136,10 +136,11 @@ if __name__ == '__main__':
     print()
     print('############################### Dataset loading ###############################')
     NUM_TRAIN = 49000
+    
+    image_aug = RandomAugment(N=2, M=10)
     transform = T.Compose([
+        T.Lambda(image_aug)
         T.Resize(224),
-        T.RandomRotation(90),
-        T.RandomHorizontalFlip(p=0.5),
         T.ToTensor(),
         T.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     ])
